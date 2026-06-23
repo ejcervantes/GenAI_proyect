@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual env
+venv/
+.venv/
+env/
+
+# Environment
+.env
+*.env.local
+
+# IDE
+.vscode/
+.idea/
+
+# Database
+*.db
+*.sqlite3
+
+# ChromaDB
+chroma_data/
+
+# Change-tracking snapshots
+policy_snapshots/
+
+# Docker volumes
+postgres_data/
+
+# Uploads
+uploads/
+filled_forms/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Alembic (keep versions tracked)
+# alembic/versions/

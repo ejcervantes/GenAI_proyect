@@ -1,0 +1,6 @@
+# Full dependency set for PassportAI.
+#
+# Since embeddings are now computed via an external API (no local model / no
+# PyTorch), the RAG stack is lightweight and lives entirely in requirements-base.
+# This file is kept as the canonical install target and simply pulls in the base.
+-r requirements-base.txt

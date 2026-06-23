@@ -1,0 +1,45 @@
+# Web framework
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+
+# Database
+sqlalchemy==2.0.35
+alembic==1.13.3
+psycopg2-binary==2.9.10
+
+# Auth
+# bcrypt must be >=4.0.1 because chromadb requires it. passlib 1.7.4 logs a
+# harmless "(trapped) error reading bcrypt version" warning with bcrypt 4.x but
+# hashing/verification work correctly.
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.2.1
+python-multipart==0.0.12
+
+# Settings
+pydantic-settings==2.5.2
+pydantic==2.9.2
+pydantic[email]==2.9.2
+python-dotenv==1.0.1
+
+# HTTP client (scraper + external embeddings API)
+httpx==0.27.2
+beautifulsoup4==4.12.3
+
+# Vector store for the RAG pipeline. Embeddings are computed via an external
+# API (see app/services/rag/embeddings.py), so no local model / PyTorch is
+# needed — chromadb is the only RAG dependency and is light enough for the base.
+chromadb==0.5.15
+
+# Scheduling (cron jobs)
+apscheduler==3.10.4
+
+# Document processing (form filler)
+pymupdf==1.24.11
+python-docx==1.1.2
+
+# Redis (optional background tasks)
+redis==5.1.1
+
+# Utilities
+python-dateutil==2.9.0
