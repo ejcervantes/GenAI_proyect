@@ -30,6 +30,8 @@ def extract_fields_from_image(image_path: str, document_type: str) -> dict:
     """
     if settings.VISION_MOCK:
         return _mock_extraction(document_type)
+    if settings.OPENAI_API_KEY:
+        return _openai_vision_extraction(image_path, document_type)
     return _llava_extraction(image_path, document_type)
 
 
@@ -85,6 +87,51 @@ def _mock_extraction(document_type: str) -> dict:
     if document_type == "national_id":
         return _MOCK_ID_DATA.copy()
     return _MOCK_PASSPORT_DATA.copy()
+
+
+# ── OpenAI Vision path ────────────────────────────────────────────────────────
+
+def _openai_vision_extraction(image_path: str, document_type: str) -> dict:
+    image_data = _encode_image(image_path)
+    mime_type = _infer_mime(image_path)
+
+    payload = {
+        "model": "gpt-4o",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime_type};base64,{image_data}", "detail": "high"},
+                    },
+                    {
+                        "type": "text",
+                        "text": f"Document type: {document_type}\n\n{_VISION_SYSTEM_PROMPT}",
+                    },
+                ],
+            }
+        ],
+        "max_tokens": 1000,
+    }
+
+    try:
+        with httpx.Client(timeout=60.0) as client:
+            resp = client.post(
+                f"{settings.OPENAI_BASE_URL}/chat/completions",
+                json=payload,
+                headers={"Authorization": f"Bearer {settings.OPENAI_API_KEY}"},
+            )
+            resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        raise RuntimeError(
+            f"OpenAI vision returned HTTP {exc.response.status_code}: {exc.response.text}"
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"OpenAI vision request failed: {exc}") from exc
+
+    raw = resp.json()["choices"][0]["message"]["content"]
+    return _parse_vision_response(raw)
 
 
 # ── LLaVA path ─────────────────────────────────────────────────────────────────
@@ -156,7 +203,11 @@ def _parse_vision_response(raw: str) -> dict:
     cleaned = raw.strip()
     cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\s*```$", "", cleaned).strip()
-    return json.loads(cleaned)
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError as exc:
+        logger.error("Vision model returned invalid JSON: %s — raw: %.500s", exc, raw)
+        raise RuntimeError(f"Vision model returned unreadable response. Try scanning again.") from exc
 
 
 def _encode_image(image_path: str) -> str:

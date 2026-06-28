@@ -32,9 +32,9 @@ FILLED_DIR = Path("uploads/filled_forms")
 # Maps common form label patterns → canonical personal data keys
 
 FIELD_ALIASES: dict[str, list[str]] = {
-    "surname": ["surname", "last name", "family name", "lastname", "nachname"],
-    "given_names": ["given name", "first name", "forename", "vorname", "given names"],
-    "passport_number": ["passport no", "passport number", "travel document", "reisepass"],
+    "surname": ["surname", "last name", "family name", "lastname", "nachname", "familienname", "apellido"],
+    "given_names": ["given name", "first name", "forename", "vorname", "given names", "vorname", "nombre"],
+    "passport_number": ["passport no", "passport number", "travel document", "reisepass", "passnummer", "pasaporte"],
     "date_of_birth": ["date of birth", "dob", "birth date", "geburtsdatum", "born on"],
     "date_of_expiry": ["expiry date", "expiration date", "valid until", "gültig bis"],
     "date_of_issue": ["date of issue", "issue date", "ausstellungsdatum"],
@@ -167,25 +167,35 @@ def _fill_docx(
     unfilled: list[str] = []
 
     def _replace_in_paragraph(para) -> None:
-        for run in para.runs:
-            matches = list(_PLACEHOLDER_RE.finditer(run.text))
-            if not matches:
-                continue
-            new_text = run.text
-            for m in matches:
-                placeholder_raw = m.group(0)
-                # Extract the inner label from whichever group matched
-                inner = (m.group(2) or m.group(3) or m.group(4) or "").strip()
-                canonical = _match_field(inner.lower())
-                if canonical and canonical in personal_data and personal_data[canonical]:
-                    value = str(personal_data[canonical])
-                    new_text = new_text.replace(placeholder_raw, value)
-                    field_map[inner] = value
-                else:
-                    unfilled.append(placeholder_raw)
-                    new_text = new_text.replace(placeholder_raw, f"***{placeholder_raw}***")
-                    run.font.color.rgb = RGBColor(0xFF, 0x00, 0x00)  # red for unfilled
-            run.text = new_text
+        # Merge all runs first — python-docx often splits a single placeholder
+        # across multiple runs due to internal formatting, so we must search the
+        # full paragraph text instead of each run individually.
+        full_text = "".join(run.text for run in para.runs)
+        if not _PLACEHOLDER_RE.search(full_text):
+            return
+
+        new_text = full_text
+        has_unfilled = False
+        for m in _PLACEHOLDER_RE.finditer(full_text):
+            placeholder_raw = m.group(0)
+            inner = (m.group(2) or m.group(3) or m.group(4) or "").strip()
+            canonical = _match_field(inner.lower())
+            if canonical and canonical in personal_data and personal_data[canonical]:
+                value = str(personal_data[canonical])
+                new_text = new_text.replace(placeholder_raw, value)
+                field_map[inner] = value
+            else:
+                unfilled.append(placeholder_raw)
+                new_text = new_text.replace(placeholder_raw, f"***{placeholder_raw}***")
+                has_unfilled = True
+
+        # Write merged result into first run, clear the rest
+        if para.runs:
+            para.runs[0].text = new_text
+            if has_unfilled:
+                para.runs[0].font.color.rgb = RGBColor(0xFF, 0x00, 0x00)
+            for run in para.runs[1:]:
+                run.text = ""
 
     for para in doc.paragraphs:
         _replace_in_paragraph(para)
@@ -207,8 +217,10 @@ def _match_field(label: str) -> Optional[str]:
     Map a form field label to a canonical personal_data key.
     Returns None if no match found.
     """
-    label = label.lower().strip()
+    label = label.lower().strip().replace("_", " ")
     for canonical, aliases in FIELD_ALIASES.items():
+        if label == canonical.replace("_", " "):
+            return canonical
         for alias in aliases:
             if alias in label or label in alias:
                 return canonical

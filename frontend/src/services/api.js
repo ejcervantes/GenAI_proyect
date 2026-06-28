@@ -80,5 +80,6 @@ export const documentsApi = {
     api.post(`/documents/${docId}/fill`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     }),
-  downloadUrl: (id) => `/api/v1/documents/${id}/download`,
+  download: (id) =>
+    api.get(`/documents/${id}/download`, { responseType: 'blob' }),
 }

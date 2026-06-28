@@ -294,9 +294,22 @@ export default function ScannerPage() {
                       <span className="text-amber-400 ml-2 font-normal">· {fillResult.unfilled_fields.length} unfilled</span>}
                   </p>
                 </div>
-                <a href={documentsApi.downloadUrl(fillResult.id)} className="btn-primary text-xs px-3 py-1.5" download>
+                <button
+                  className="btn-primary text-xs px-3 py-1.5"
+                  onClick={async () => {
+                    try {
+                      const res = await documentsApi.download(fillResult.id)
+                      const url = URL.createObjectURL(new Blob([res.data]))
+                      const a = document.createElement('a')
+                      a.href = url
+                      a.download = `filled_${fillResult.filename || 'form.docx'}`
+                      a.click()
+                      URL.revokeObjectURL(url)
+                    } catch { toast.error('Download failed') }
+                  }}
+                >
                   <Download size={12} /> Download
-                </a>
+                </button>
               </div>
               {fillResult.unfilled_fields?.length > 0 && (
                 <div className="p-3 rounded-xl text-xs" style={{
