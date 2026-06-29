@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { documentsApi } from '../services/api'
 import { Upload, ScanLine, AlertTriangle, CheckCircle2, Download, FileText, Loader2, Sparkles } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -9,6 +9,8 @@ const DOC_TYPES = [
   { value: 'national_id', label: 'National ID',  icon: '🪪' },
 ]
 
+const IMPORTANT_FIELDS = ['surname', 'given_names', 'passport_number', 'date_of_birth', 'nationality']
+
 function ConfidenceDot({ score }) {
   const color = score >= 0.85 ? '#10b981' : score >= 0.75 ? '#f59e0b' : '#ef4444'
   return (
@@ -17,7 +19,7 @@ function ConfidenceDot({ score }) {
   )
 }
 
-function FieldTable({ fields, fieldConfidence, flaggedFields }) {
+function FieldTable({ fields, fieldConfidence, flaggedFields, onEdit }) {
   if (!fields || Object.keys(fields).length === 0) return null
   return (
     <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.06)' }}>
@@ -33,10 +35,11 @@ function FieldTable({ fields, fieldConfidence, flaggedFields }) {
           {Object.entries(fields).map(([key, value], i) => {
             const score = fieldConfidence?.[key] ?? 1
             const flagged = flaggedFields?.includes(key)
+            const isEmpty = value === null || value === undefined || value === ''
             return (
               <tr key={key} style={{
                 borderBottom: '1px solid rgba(255,255,255,0.04)',
-                background: flagged ? 'rgba(245,158,11,0.04)' : i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)',
+                background: isEmpty ? 'rgba(239,68,68,0.04)' : flagged ? 'rgba(245,158,11,0.04)' : i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)',
               }}>
                 <td className="px-4 py-2.5">
                   <span className="text-slate-500 text-[11px]" style={{ fontFamily: 'JetBrains Mono' }}>
@@ -45,14 +48,27 @@ function FieldTable({ fields, fieldConfidence, flaggedFields }) {
                 </td>
                 <td className="px-4 py-2.5">
                   <div className="flex items-center gap-2">
-                    <span className="text-slate-200 text-sm font-medium" style={{ fontFamily: 'Syne' }}>{String(value)}</span>
-                    {flagged && <AlertTriangle size={11} className="text-amber-400 shrink-0" title="Low confidence — verify" />}
+                    <input
+                      className="bg-transparent text-slate-200 text-sm font-medium outline-none w-full"
+                      style={{
+                        fontFamily: 'Syne',
+                        borderBottom: isEmpty ? '1px solid rgba(239,68,68,0.5)' : '1px solid transparent',
+                        color: isEmpty ? '#fca5a5' : undefined,
+                      }}
+                      value={isEmpty ? '' : String(value)}
+                      placeholder={isEmpty ? 'Click to fill manually…' : undefined}
+                      onChange={e => onEdit(key, e.target.value)}
+                    />
+                    {flagged && !isEmpty && <AlertTriangle size={11} className="text-amber-400 shrink-0" title="Low confidence — verify" />}
+                    {isEmpty && <AlertTriangle size={11} className="text-red-400 shrink-0" title="Missing — fill manually" />}
                   </div>
                 </td>
                 <td className="px-4 py-2.5 text-right">
                   <div className="flex items-center justify-end gap-2">
-                    <ConfidenceDot score={score} />
-                    <span className="text-[11px] text-slate-600" style={{ fontFamily: 'JetBrains Mono' }}>{Math.round(score * 100)}%</span>
+                    {!isEmpty && <ConfidenceDot score={score} />}
+                    <span className="text-[11px] text-slate-600" style={{ fontFamily: 'JetBrains Mono' }}>
+                      {isEmpty ? '—' : `${Math.round(score * 100)}%`}
+                    </span>
                   </div>
                 </td>
               </tr>
@@ -64,7 +80,7 @@ function FieldTable({ fields, fieldConfidence, flaggedFields }) {
   )
 }
 
-function DropZone({ onFile, label, accept, icon: Icon, active }) {
+function DropZone({ onFile, label, accept, icon: Icon }) {
   const ref = useRef(null)
   const [dragging, setDragging] = useState(false)
   const [filename, setFilename] = useState(null)
@@ -90,7 +106,6 @@ function DropZone({ onFile, label, accept, icon: Icon, active }) {
       <input ref={ref} type="file" accept={accept} className="hidden"
         onChange={e => handle(e.target.files[0])} />
 
-      {/* Upload icon */}
       <div className="w-12 h-12 rounded-xl flex items-center justify-center mx-auto mb-3 transition-all duration-200" style={{
         background: dragging ? 'rgba(180,140,60,0.12)' : filename ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.04)',
         border: `1px solid ${dragging ? 'rgba(180,140,60,0.3)' : filename ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.07)'}`,
@@ -130,10 +145,21 @@ export default function ScannerPage() {
   const [scanFile, setScanFile] = useState(null)
   const [scanning, setScanning] = useState(false)
   const [scanResult, setScanResult] = useState(null)
+  const [savedScan, setSavedScan] = useState(null)
 
   const [formFile, setFormFile] = useState(null)
   const [filling, setFilling] = useState(false)
   const [fillResult, setFillResult] = useState(null)
+  const [missingFields, setMissingFields] = useState([])
+  const [showMissingWarning, setShowMissingWarning] = useState(false)
+
+  // Load most recent passport scan from previous sessions
+  useEffect(() => {
+    documentsApi.list().then(res => {
+      const prev = res.data.find(d => d.file_type === 'passport' && d.extraction_status === 'done')
+      if (prev) documentsApi.get(prev.id).then(r => setSavedScan(r.data)).catch(() => {})
+    }).catch(() => {})
+  }, [])
 
   const runScan = async () => {
     if (!scanFile) { toast.error('Please select a file first'); return }
@@ -145,6 +171,7 @@ export default function ScannerPage() {
       fd.append('document_type', docType)
       const res = await documentsApi.scan(fd)
       setScanResult(res.data)
+      setSavedScan(null) // hide saved banner after new scan
       toast.success('Document scanned successfully')
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Scan failed')
@@ -153,9 +180,21 @@ export default function ScannerPage() {
     }
   }
 
-  const runFill = async () => {
+  const runFill = async (force = false) => {
     if (!formFile) { toast.error('Please upload a blank form first'); return }
     if (!scanResult) { toast.error('Scan a passport first to supply personal data'); return }
+
+    // Warn if important fields are missing before filling
+    if (!force) {
+      const missing = IMPORTANT_FIELDS.filter(f => !scanResult.fields?.[f])
+      if (missing.length > 0) {
+        setMissingFields(missing)
+        setShowMissingWarning(true)
+        return
+      }
+    }
+
+    setShowMissingWarning(false)
     setFilling(true)
     setFillResult(null)
     try {
@@ -184,7 +223,6 @@ export default function ScannerPage() {
         background: 'rgba(12,18,32,0.8)', border: '1px solid rgba(180,140,60,0.1)',
         backdropFilter: 'blur(12px)', animationDelay: '60ms',
       }}>
-        {/* Section header */}
         <div className="px-6 py-4 flex items-center gap-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
           <StepNumber n={1} done={!!scanResult} />
           <div>
@@ -194,6 +232,27 @@ export default function ScannerPage() {
         </div>
 
         <div className="p-6">
+          {/* Saved scan banner */}
+          {savedScan && !scanResult && (
+            <div className="mb-5 flex items-center justify-between p-3 rounded-xl" style={{
+              background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.2)',
+            }}>
+              <div className="flex items-center gap-2">
+                <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />
+                <span className="text-xs text-emerald-300" style={{ fontFamily: 'Syne' }}>
+                  Previous scan found: <strong>{savedScan.fields?.surname} {savedScan.fields?.given_names}</strong>
+                </span>
+              </div>
+              <button
+                onClick={() => { setScanResult(savedScan); setSavedScan(null) }}
+                className="text-xs px-3 py-1 rounded-lg font-medium shrink-0 ml-3"
+                style={{ background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)', color: '#10b981', fontFamily: 'Syne' }}
+              >
+                Use this
+              </button>
+            </div>
+          )}
+
           {/* Doc type selector */}
           <div className="flex gap-2 mb-5">
             {DOC_TYPES.map(t => (
@@ -250,7 +309,15 @@ export default function ScannerPage() {
                 </div>
               )}
 
-              <FieldTable fields={scanResult.fields} fieldConfidence={scanResult.field_confidence} flaggedFields={scanResult.flagged_fields} />
+              <FieldTable
+                fields={scanResult.fields}
+                fieldConfidence={scanResult.field_confidence}
+                flaggedFields={scanResult.flagged_fields}
+                onEdit={(key, val) => setScanResult(prev => ({
+                  ...prev,
+                  fields: { ...prev.fields, [key]: val }
+                }))}
+              />
             </div>
           )}
         </div>
@@ -275,7 +342,28 @@ export default function ScannerPage() {
             accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             icon={FileText} />
 
-          <button onClick={runFill} disabled={!formFile || !scanResult || filling} className="btn-primary mt-4">
+          {/* Missing fields warning */}
+          {showMissingWarning && (
+            <div className="mt-4 p-4 rounded-xl" style={{
+              background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.25)',
+            }}>
+              <div className="flex items-start gap-2 mb-3">
+                <AlertTriangle size={14} className="text-red-400 shrink-0 mt-0.5" />
+                <p className="text-xs text-red-300">
+                  These fields are missing:{' '}
+                  <strong className="text-red-200">{missingFields.map(f => f.replace(/_/g, ' ')).join(', ')}</strong>.
+                  You can fill them manually in the table above, or continue anyway.
+                </p>
+              </div>
+              <button onClick={() => runFill(true)}
+                className="text-xs px-3 py-1.5 rounded-lg font-medium"
+                style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171', fontFamily: 'Syne' }}>
+                Fill anyway
+              </button>
+            </div>
+          )}
+
+          <button onClick={() => runFill(false)} disabled={!formFile || !scanResult || filling} className="btn-primary mt-4">
             {filling
               ? <><Loader2 size={14} className="animate-spin" />Filling…</>
               : <><FileText size={14} />Fill Form</>
